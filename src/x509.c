@@ -7779,6 +7779,64 @@ static int X509PrintSignature(WOLFSSL_BIO* bio, WOLFSSL_X509* x509,
 }
 
 
+/* print out a raw public key (the BIT STRING contents of the
+ * SubjectPublicKeyInfo) as colon separated hex in the same layout as OpenSSL
+ * uses for key types such as ED25519 and ML-DSA.
+ * return WOLFSSL_SUCCESS on success
+ */
+static int X509PrintRawPubKey(WOLFSSL_BIO* bio, const char* name,
+        const byte* key, word32 keySz, int indent)
+{
+    char scratch[MAX_WIDTH];
+    int len;
+    word32 i;
+
+    if (key == NULL || keySz == 0)
+        return WOLFSSL_FAILURE;
+
+    len = XSNPRINTF(scratch, MAX_WIDTH, "%*sPublic Key Algorithm: %s\n",
+            indent + 4, "", name);
+    if ((len < 0) || (len >= MAX_WIDTH))
+        return WOLFSSL_FAILURE;
+    if (wolfSSL_BIO_write(bio, scratch, len) <= 0)
+        return WOLFSSL_FAILURE;
+
+    len = XSNPRINTF(scratch, MAX_WIDTH, "%*s%s Public-Key:\n", indent + 8, "",
+            name);
+    if ((len < 0) || (len >= MAX_WIDTH))
+        return WOLFSSL_FAILURE;
+    if (wolfSSL_BIO_write(bio, scratch, len) <= 0)
+        return WOLFSSL_FAILURE;
+
+    len = XSNPRINTF(scratch, MAX_WIDTH, "%*spub:\n", indent + 8, "");
+    if ((len < 0) || (len >= MAX_WIDTH))
+        return WOLFSSL_FAILURE;
+    if (wolfSSL_BIO_write(bio, scratch, len) <= 0)
+        return WOLFSSL_FAILURE;
+
+    /* 15 bytes per line, each followed by ':' except the very last. */
+    for (i = 0; i < keySz; i++) {
+        int valLen;
+
+        len = 0;
+        if ((i % 15) == 0) {
+            len = XSNPRINTF(scratch, MAX_WIDTH, "%*s", indent + 12, "");
+            if ((len < 0) || (len >= MAX_WIDTH))
+                return WOLFSSL_FAILURE;
+        }
+        valLen = XSNPRINTF(scratch + len, (size_t)(MAX_WIDTH - len), "%02x%s%s",
+                key[i], (i + 1 < keySz) ? ":" : "",
+                ((i % 15) == 14 || i + 1 == keySz) ? "\n" : "");
+        if ((valLen < 0) || (valLen >= MAX_WIDTH - len))
+            return WOLFSSL_FAILURE;
+        len += valLen;
+        if (wolfSSL_BIO_write(bio, scratch, len) <= 0)
+            return WOLFSSL_FAILURE;
+    }
+
+    return WOLFSSL_SUCCESS;
+}
+
 /* print out the public key in human readable format for use with
  * wolfSSL_X509_print()
  * return WOLFSSL_SUCCESS on success
@@ -7789,6 +7847,7 @@ static int X509PrintPubKey(WOLFSSL_BIO* bio, WOLFSSL_X509* x509, int indent)
     WOLFSSL_EVP_PKEY* pubKey;
     int len;
     int ret = WOLFSSL_SUCCESS;
+    const char* rawName = NULL;
 
     if (indent < 0) indent = 0;
     if (indent > MAX_INDENT) indent = MAX_INDENT;
@@ -7824,9 +7883,55 @@ static int X509PrintPubKey(WOLFSSL_BIO* bio, WOLFSSL_X509* x509, int indent)
                 return WOLFSSL_FAILURE;
             break;
     #endif
+    #ifdef HAVE_ED25519
+        case ED25519k:
+            rawName = "ED25519";
+            break;
+    #endif
+    #ifdef HAVE_ED448
+        case ED448k:
+            rawName = "ED448";
+            break;
+    #endif
+    #ifdef HAVE_FALCON
+        case FALCON_LEVEL1k:
+            rawName = "Falcon Level 1";
+            break;
+        case FALCON_LEVEL5k:
+            rawName = "Falcon Level 5";
+            break;
+    #endif
+    #ifdef WOLFSSL_HAVE_MLDSA
+        #ifdef WOLFSSL_MLDSA_FIPS204_DRAFT
+        case DILITHIUM_LEVEL2k:
+            rawName = "Dilithium Level 2";
+            break;
+        case DILITHIUM_LEVEL3k:
+            rawName = "Dilithium Level 3";
+            break;
+        case DILITHIUM_LEVEL5k:
+            rawName = "Dilithium Level 5";
+            break;
+        #endif
+        case ML_DSA_44k:
+            rawName = "ML-DSA-44";
+            break;
+        case ML_DSA_65k:
+            rawName = "ML-DSA-65";
+            break;
+        case ML_DSA_87k:
+            rawName = "ML-DSA-87";
+            break;
+    #endif
         default:
                 WOLFSSL_MSG("Unknown key type");
                 return WOLFSSL_FAILURE;
+    }
+
+    /* Key types stored as raw bytes are printed directly. */
+    if (rawName != NULL) {
+        return X509PrintRawPubKey(bio, rawName, x509->pubKey.buffer,
+                x509->pubKey.length, indent);
     }
 
     pubKey = wolfSSL_X509_get_pubkey(x509);

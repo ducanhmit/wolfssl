@@ -31741,6 +31741,68 @@ static int test_wolfSSL_X509_print_ext_key_usage(void)
     return EXPECT_RESULT();
 }
 
+static int test_wolfSSL_X509_print_raw_pubkey(void)
+{
+    EXPECT_DECLS;
+#if defined(OPENSSL_EXTRA) && !defined(NO_FILESYSTEM) && defined(XSNPRINTF) && \
+    (defined(HAVE_ED25519) || defined(HAVE_ED448) || \
+     (defined(WOLFSSL_HAVE_MLDSA) && !defined(WOLFSSL_MLDSA_NO_ASN1) && \
+      !defined(WOLFSSL_NO_ML_DSA_44)))
+    /* X509_print must print public keys that are stored as raw bytes (EdDSA,
+     * ML-DSA) in the OpenSSL layout rather than failing on the key type. */
+    struct {
+        const char* file;
+        const char* expect;
+    } cases[] = {
+    #ifdef HAVE_ED25519
+        { "./certs/ed25519/ca-ed25519.pem",
+          "Public Key Algorithm: ED25519\n"
+          "                ED25519 Public-Key:\n"
+          "                pub:\n"
+          "                    42:3b:7a:f9:82:cf:f9:df:19:dd:f3:f0:32:29:6d:\n"
+          "                    fa:fd:76:4f:68:c2:c2:e0:6c:47:ae:c2:55:68:ac:\n"
+          "                    0d:4d\n" },
+    #endif
+    #ifdef HAVE_ED448
+        { "./certs/ed448/ca-ed448.pem",
+          "Public Key Algorithm: ED448\n"
+          "                ED448 Public-Key:\n"
+          "                pub:\n"
+          "                    0e:e2:b4:76:e5:d2:cc:c2:4b:7b:b0:29:be:92:fb:\n" },
+    #endif
+    #if defined(WOLFSSL_HAVE_MLDSA) && !defined(WOLFSSL_MLDSA_NO_ASN1) && \
+        !defined(WOLFSSL_NO_ML_DSA_44)
+        { "./certs/mldsa/mldsa44-cert.pem",
+          "Public Key Algorithm: ML-DSA-44\n"
+          "                ML-DSA-44 Public-Key:\n"
+          "                pub:\n"
+          "                    f9:24:30:3c:ee:a6:bc:0e:e2:66:cf:be:1d:20:11:\n" },
+    #endif
+    };
+    size_t i;
+
+    for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        X509* x509 = NULL;
+        BIO*  bio  = NULL;
+        char* data = NULL;
+
+        ExpectNotNull(x509 = X509_load_certificate_file(cases[i].file,
+            WOLFSSL_FILETYPE_PEM));
+        ExpectNotNull(bio = BIO_new(BIO_s_mem()));
+        ExpectIntEQ(X509_print(bio, x509), SSL_SUCCESS);
+        /* NUL-terminate the memory BIO data so it can be searched. */
+        ExpectIntEQ(BIO_write(bio, "", 1), 1);
+        ExpectIntGT(BIO_get_mem_data(bio, &data), 0);
+        if (data != NULL) {
+            ExpectNotNull(XSTRSTR(data, cases[i].expect));
+        }
+        BIO_free(bio);
+        X509_free(x509);
+    }
+#endif
+    return EXPECT_RESULT();
+}
+
 static int test_wolfSSL_X509_print_dir_altname(void)
 {
     EXPECT_DECLS;
@@ -43769,6 +43831,7 @@ TEST_CASE testCases[] = {
     TEST_DECL(test_wolfSSL_X509_print),
     TEST_DECL(test_wolfSSL_X509_print_basic_constraints),
     TEST_DECL(test_wolfSSL_X509_print_ext_key_usage),
+    TEST_DECL(test_wolfSSL_X509_print_raw_pubkey),
     TEST_DECL(test_wolfSSL_X509_print_dir_altname),
     TEST_DECL(test_wolfSSL_X509_CRL_print),
 #endif
